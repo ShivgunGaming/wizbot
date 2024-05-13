@@ -39,8 +39,16 @@ async def verify_captcha(member, expected_text):
     await member.send("CAPTCHA verification successful! Welcome to the server.")
     verified_users[member.id] = True  # Add the member to the dictionary of verified users
     verifying_users.remove(member.id)
-    # Grant access to the server (assign role, update permissions, etc.)
-    # Add your code here to grant access
+
+    # Assign a role to the verified member by ID
+    role_id = ROLE ID HERE  # Replace this with the actual role ID
+    role = member.guild.get_role(role_id)
+    if role:
+        await member.add_roles(role)
+    else:
+        print(f"Role with ID {role_id} not found.")
+
+    # Optionally, you can grant additional permissions or perform other actions here
 
 def generate_captcha_text():
     captcha_characters = string.ascii_letters + string.digits
