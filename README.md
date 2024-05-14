@@ -49,6 +49,8 @@ This Discord bot is designed to add a CAPTCHA verification process for new membe
 ## Inviting the Bot to Your Server 🚪
 
 To invite the Wizbot CAPTCHABOT to your server, use the following invite link: [Invite Wizbot](https://discord.com/oauth2/authorize?client_id=1239446199661232248&permissions=29681915919607&scope=bot)
+- Note: To assign roles, the bot needs to be placed on the top of the role hierarchy to ensure it can assign roles effectively.
+
 
 ## Contributing 🚀
 
