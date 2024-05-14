@@ -46,6 +46,10 @@ This Discord bot is designed to add a CAPTCHA verification process for new membe
 - Upon successful verification, the member gains access to the server and is assigned a specified role.
 - If the verification fails (e.g., due to timeout), the bot removes the member from the server.
 
+## Inviting the Bot to Your Server 🚪
+
+To invite the Wizbot CAPTCHABOT to your server, use the following invite link: [Invite Wizbot](https://discord.com/oauth2/authorize?client_id=1239446199661232248&permissions=29681915919607&scope=bot)
+
 ## Contributing 🚀
 
 Contributions are welcome! If you have suggestions, feature requests, or found a bug, feel free to open an issue or submit a pull request.
