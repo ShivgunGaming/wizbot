@@ -21,7 +21,14 @@ async def on_member_join(member):
 async def send_captcha(member):
     if member.id not in verified_users and member.id not in verifying_users:
         captcha_text = generate_captcha_text()
-        await member.send(f"Please solve this CAPTCHA to enter the server: {captcha_text}")
+        embed = discord.Embed(
+            title="CAPTCHA Verification",
+            description=f"Welcome to the server, {member.display_name}!\n\nPlease solve the CAPTCHA below to gain access.",
+            color=0x7289DA
+        )
+        embed.set_image(url=f"https://dummyimage.com/300x100/7289DA/FFFFFF.png&text={captcha_text}")
+        embed.set_footer(text="You have 60 seconds to solve the CAPTCHA.")
+        await member.send(embed=embed)
         verifying_users.add(member.id)
         await verify_captcha(member, captcha_text)
 
@@ -41,7 +48,7 @@ async def verify_captcha(member, expected_text):
     verifying_users.remove(member.id)
 
     # Assign a role to the verified member by ID
-    role_id = ROLE ID HERE  # Replace this with the actual role ID
+    role_id = ROLE HERE  # Replace this with the actual role ID
     role = member.guild.get_role(role_id)
     if role:
         await member.add_roles(role)
