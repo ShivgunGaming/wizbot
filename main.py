@@ -2,6 +2,11 @@ import discord
 from discord.ext import commands
 import random
 import string
+from PIL import Image, ImageDraw, ImageFont
+import io
+import asyncio
+import time
+import logging
 
 intents = discord.Intents.default()
 intents.members = True  # Enable the members intent to receive member join events
@@ -12,59 +17,141 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 verified_users = {}
 
 # Placeholder for tracking ongoing CAPTCHA verification processes
-verifying_users = set()
+verifying_users = {}
+
+# Placeholder for storing timestamp of last CAPTCHA attempt for each user
+last_attempt_timestamp = {}
+
+# Constants for CAPTCHA settings
+CAPTCHA_TIMEOUT = 60  # Timeout in seconds
+CAPTCHA_ATTEMPTS_LIMIT = 3  # Maximum number of attempts
+
+# Constants for rate limiting
+RATE_LIMIT_WINDOW = 60  # Time window in seconds
+RATE_LIMIT_MAX_ATTEMPTS = 3  # Maximum number of attempts allowed within the window
+
+# Logging configuration
+logging.basicConfig(filename='bot.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @bot.event
 async def on_member_join(member):
     await send_captcha(member)
 
 async def send_captcha(member):
+    # Check if the user has exceeded the rate limit
+    if member.id in last_attempt_timestamp:
+        current_time = time.time()
+        time_since_last_attempt = current_time - last_attempt_timestamp[member.id]
+        if time_since_last_attempt < RATE_LIMIT_WINDOW:
+            await member.send(f"You've exceeded the rate limit. Please wait for {int(RATE_LIMIT_WINDOW - time_since_last_attempt)} seconds before trying again.")
+            return
+    
     if member.id not in verified_users and member.id not in verifying_users:
         captcha_text = generate_captcha_text()
+        captcha_image = generate_captcha_image(captcha_text)
+        file = discord.File(captcha_image, filename="captcha.png")
+        
         embed = discord.Embed(
-            title="CAPTCHA Verification",
-            description=f"Welcome to the server, {member.display_name}!\n\nPlease solve the CAPTCHA below to gain access.",
+            title="Welcome to the Server!",
+            description=f"Hello {member.display_name}!\nPlease complete the CAPTCHA below to gain access.",
             color=0x7289DA
         )
-        embed.set_image(url=f"https://dummyimage.com/300x100/7289DA/FFFFFF.png&text={captcha_text}")
+        embed.set_image(url="attachment://captcha.png")
         embed.set_footer(text="You have 60 seconds to solve the CAPTCHA.")
-        await member.send(embed=embed)
-        verifying_users.add(member.id)
-        await verify_captcha(member, captcha_text)
-
-async def verify_captcha(member, expected_text):
-    def check(message):
-        return message.author == member and message.content.lower() == expected_text.lower()
-
-    try:
-        response = await bot.wait_for('message', check=check, timeout=60)  # Wait for user response
-    except asyncio.TimeoutError:
-        await member.kick(reason="Failed CAPTCHA verification (timeout)")
-        verifying_users.remove(member.id)
+        try:
+            await member.send(embed=embed, file=file)
+            verifying_users[member.id] = captcha_text
+            await verify_captcha(member)
+            # Update last attempt timestamp
+            last_attempt_timestamp[member.id] = time.time()
+        except discord.Forbidden:
+            logging.error(f"Failed to send CAPTCHA to {member.display_name}. User might have disabled DMs or blocked the bot.")
+            # Handle the case where the bot is unable to send a message to the user
+            # For example, you could kick the user from the server or log the error
+    
+async def verify_captcha(member):
+    expected_text = verifying_users.get(member.id)
+    if not expected_text:
         return
 
-    await member.send("CAPTCHA verification successful! Welcome to the server.")
-    verified_users[member.id] = True  # Add the member to the dictionary of verified users
-    verifying_users.remove(member.id)
+    def check(message):
+        return message.author == member and message.content == expected_text
 
-    # Assign a role to the verified member by ID
-    role_id = ROLE HERE  # Replace this with the actual role ID
-    role = member.guild.get_role(role_id)
-    if role:
-        await member.add_roles(role)
-    else:
-        print(f"Role with ID {role_id} not found.")
+    try:
+        response = await bot.wait_for('message', check=check, timeout=CAPTCHA_TIMEOUT)  # Wait for user response
+    except asyncio.TimeoutError:
+        await handle_verification_failure(member, "Failed CAPTCHA verification (timeout)")
+        return
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during CAPTCHA verification for {member.display_name}: {e}")
+        await handle_verification_failure(member, "An unexpected error occurred during CAPTCHA verification")
+        return
 
-    # Optionally, you can grant additional permissions or perform other actions here
+    await handle_verification_success(member)
 
 def generate_captcha_text():
     captcha_characters = string.ascii_letters + string.digits
     captcha_text = ''.join(random.choices(captcha_characters, k=6))
     return captcha_text
 
+def generate_captcha_image(text):
+    # Randomize CAPTCHA generation parameters
+    font_size = random.randint(36, 42)  # Random font size between 36 and 42
+    font = ImageFont.truetype("arial.ttf", font_size)
+    text_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))  # Random RGB color
+    background_color = (240, 240, 240)  # Light background color
+    noise_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))  # Random dark noise color
+
+    # Create an image
+    image = Image.new("RGB", (200, 80), color=background_color)
+    draw = ImageDraw.Draw(image)
+
+    # Add noise to the image
+    for _ in range(500):
+        x = random.randint(0, 200)
+        y = random.randint(0, 80)
+        draw.point((x, y), fill=noise_color)
+
+    # Add text to the image with slight distortion
+    for char_index, char in enumerate(text):
+        char_offset_x = random.randint(-5, 5)
+        char_offset_y = random.randint(-5, 5)
+        char_position = (10 + char_index * (font_size // 2), 10)
+        draw.text(char_position, char, fill=text_color, font=font)
+    
+    # Add a border around the image
+    draw.rectangle([0, 0, 199, 79], outline=(0, 0, 0), width=1)
+
+    # Save image to a buffer
+    image_buffer = io.BytesIO()
+    image.save(image_buffer, format="PNG")
+    image_buffer.seek(0)
+    
+    return image_buffer
+
+async def handle_verification_success(member):
+    await member.send("CAPTCHA verification successful! Welcome to the server.")
+    verified_users[member.id] = True  # Add the member to the dictionary of verified users
+
+    # Assign a role to the verified member by ID
+    role_id = ROLE ID HERE  # Replace this with the actual role ID
+    role = member.guild.get_role(role_id)
+    if role:
+        await member.add_roles(role)
+    else:
+        logging.error(f"Role with ID {role_id} not found.")
+
+    # Optionally, you can grant additional permissions or perform other actions here
+    verifying_users.pop(member.id)
+
+async def handle_verification_failure(member, reason):
+    await member.kick(reason=reason)
+    verifying_users.pop(member.id)
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
+    logging.info(f'Logged in as {bot.user}')
 
 @bot.event
 async def on_message(message):
