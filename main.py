@@ -25,8 +25,6 @@ last_attempt_timestamp = {}
 # Constants for CAPTCHA settings
 CAPTCHA_TIMEOUT = 60  # Timeout in seconds
 CAPTCHA_ATTEMPTS_LIMIT = 3  # Maximum number of attempts
-
-# Constants for rate limiting
 RATE_LIMIT_WINDOW = 60  # Time window in seconds
 RATE_LIMIT_MAX_ATTEMPTS = 3  # Maximum number of attempts allowed within the window
 
@@ -57,10 +55,14 @@ async def send_captcha(member):
             color=0x7289DA
         )
         embed.set_image(url="attachment://captcha.png")
-        embed.set_footer(text="You have 60 seconds to solve the CAPTCHA.")
+        embed.set_footer(text="You have 60 seconds to solve the CAPTCHA. Type the text in the chat.")
         try:
-            await member.send(embed=embed, file=file)
-            verifying_users[member.id] = captcha_text
+            # Send CAPTCHA with clear instructions and interactive feedback
+            message = await member.send(embed=embed, file=file)
+            verifying_users[member.id] = {
+                "captcha_text": captcha_text,
+                "message_id": message.id
+            }
             await verify_captcha(member)
             # Update last attempt timestamp
             last_attempt_timestamp[member.id] = time.time()
@@ -68,26 +70,35 @@ async def send_captcha(member):
             logging.error(f"Failed to send CAPTCHA to {member.display_name}. User might have disabled DMs or blocked the bot.")
             # Handle the case where the bot is unable to send a message to the user
             # For example, you could kick the user from the server or log the error
-    
+
 async def verify_captcha(member):
-    expected_text = verifying_users.get(member.id)
-    if not expected_text:
+    data = verifying_users.get(member.id)
+    if not data:
         return
 
+    expected_text = data["captcha_text"]
+    message_id = data["message_id"]
+
     def check(message):
-        return message.author == member and message.content == expected_text
+        return message.author == member and message.content == expected_text  # Ensure exact match, including case
 
     try:
         response = await bot.wait_for('message', check=check, timeout=CAPTCHA_TIMEOUT)  # Wait for user response
+        await handle_verification_success(member)
     except asyncio.TimeoutError:
         await handle_verification_failure(member, "Failed CAPTCHA verification (timeout)")
-        return
     except Exception as e:
         logging.error(f"An unexpected error occurred during CAPTCHA verification for {member.display_name}: {e}")
         await handle_verification_failure(member, "An unexpected error occurred during CAPTCHA verification")
-        return
-
-    await handle_verification_success(member)
+    finally:
+        # Use await to fetch the message before deleting
+        try:
+            message = await member.dm_channel.fetch_message(message_id)
+            await message.delete()
+        except discord.NotFound:
+            logging.error(f"Message with ID {message_id} not found.")
+        except discord.Forbidden:
+            logging.error(f"Bot does not have permission to delete message with ID {message_id}.")
 
 def generate_captcha_text():
     captcha_characters = string.ascii_letters + string.digits
@@ -98,9 +109,9 @@ def generate_captcha_image(text):
     # Randomize CAPTCHA generation parameters
     font_size = random.randint(36, 42)  # Random font size between 36 and 42
     font = ImageFont.truetype("arial.ttf", font_size)
-    text_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))  # Random RGB color
+    text_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))  # Random dark RGB color
     background_color = (240, 240, 240)  # Light background color
-    noise_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))  # Random dark noise color
+    noise_color = (random.randint(150, 255), random.randint(150, 255), random.randint(150, 255))  # Random light noise color
 
     # Create an image
     image = Image.new("RGB", (200, 80), color=background_color)
@@ -112,11 +123,17 @@ def generate_captcha_image(text):
         y = random.randint(0, 80)
         draw.point((x, y), fill=noise_color)
 
+    # Add random lines
+    for _ in range(5):
+        x1, y1 = random.randint(0, 200), random.randint(0, 80)
+        x2, y2 = random.randint(0, 200), random.randint(0, 80)
+        draw.line(((x1, y1), (x2, y2)), fill=noise_color, width=2)
+
     # Add text to the image with slight distortion
     for char_index, char in enumerate(text):
         char_offset_x = random.randint(-5, 5)
         char_offset_y = random.randint(-5, 5)
-        char_position = (10 + char_index * (font_size // 2), 10)
+        char_position = (10 + char_index * (font_size // 2), random.randint(5, 20))
         draw.text(char_position, char, fill=text_color, font=font)
     
     # Add a border around the image
@@ -145,6 +162,7 @@ async def handle_verification_success(member):
     verifying_users.pop(member.id)
 
 async def handle_verification_failure(member, reason):
+    await member.send("CAPTCHA verification failed. You have been removed from the server.")
     await member.kick(reason=reason)
     verifying_users.pop(member.id)
 
