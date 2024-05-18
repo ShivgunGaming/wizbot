@@ -32,6 +32,15 @@ RATE_LIMIT_MAX_ATTEMPTS = 3  # Maximum number of attempts allowed within the win
 logging.basicConfig(filename='bot.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user}')
+    logging.info(f'Logged in as {bot.user}')
+
+    # Set the custom status
+    activity = discord.Activity(type=discord.ActivityType.listening, name="all CAPTCHA verifications 🧙‍♂️")
+    await bot.change_presence(status=discord.Status.online, activity=activity)
+
+@bot.event
 async def on_member_join(member):
     await send_captcha(member)
 
@@ -165,11 +174,6 @@ async def handle_verification_failure(member, reason):
     await member.send("CAPTCHA verification failed. You have been removed from the server.")
     await member.kick(reason=reason)
     verifying_users.pop(member.id)
-
-@bot.event
-async def on_ready():
-    print(f'Logged in as {bot.user}')
-    logging.info(f'Logged in as {bot.user}')
 
 @bot.event
 async def on_message(message):
