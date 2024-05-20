@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 import random
 import string
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import io
 import asyncio
 import time
@@ -132,44 +132,53 @@ def generate_captcha_text():
     return captcha_text
 
 def generate_captcha_image(text):
-    # Randomize CAPTCHA generation parameters
-    font_size = random.randint(36, 42)  # Random font size between 36 and 42
-    font = ImageFont.truetype("arial.ttf", font_size)
-    text_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))  # Random dark RGB color
+    # Define image dimensions and colors
+    width, height = 200, 80
     background_color = (240, 240, 240)  # Light background color
+    text_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))  # Random dark text color
     noise_color = (random.randint(150, 255), random.randint(150, 255), random.randint(150, 255))  # Random light noise color
 
-    # Create an image
-    image = Image.new("RGB", (200, 80), color=background_color)
+    # Create a blank image with specified background color
+    image = Image.new("RGB", (width, height), color=background_color)
+
+    # Create a drawing object
     draw = ImageDraw.Draw(image)
 
     # Add noise to the image
-    for _ in range(500):
-        x = random.randint(0, 200)
-        y = random.randint(0, 80)
+    for _ in range(1000):
+        x = random.randint(0, width - 1)
+        y = random.randint(0, height - 1)
         draw.point((x, y), fill=noise_color)
 
     # Add random lines
     for _ in range(5):
-        x1, y1 = random.randint(0, 200), random.randint(0, 80)
-        x2, y2 = random.randint(0, 200), random.randint(0, 80)
+        x1, y1 = random.randint(0, width - 1), random.randint(0, height - 1)
+        x2, y2 = random.randint(0, width - 1), random.randint(0, height - 1)
         draw.line(((x1, y1), (x2, y2)), fill=noise_color, width=2)
+
+    # Load a random font
+    font_path = random.choice(["arial.ttf", "times.ttf", "cour.ttf"])
+    font_size = random.randint(36, 42)
+    font = ImageFont.truetype(font_path, font_size)
 
     # Add text to the image with slight distortion
     for char_index, char in enumerate(text):
         char_offset_x = random.randint(-5, 5)
-        char_offset_y = random.randint(-5, 5)
-        char_position = (10 + char_index * (font_size // 2), random.randint(5, 20))
+        char_offset_y = random.randint(-5, 5)  # <- This line was incomplete
+        char_position = (10 + char_index * (font_size // 2) + char_offset_x, random.randint(5, 20) + char_offset_y)
         draw.text(char_position, char, fill=text_color, font=font)
-    
+
+    # Apply a blur filter to the image for a smoother appearance
+    image = image.filter(ImageFilter.GaussianBlur(radius=1.5))
+
     # Add a border around the image
-    draw.rectangle([0, 0, 199, 79], outline=(0, 0, 0), width=1)
+    draw.rectangle([0, 0, width - 1, height - 1], outline=(0, 0, 0), width=1)
 
     # Save image to a buffer
     image_buffer = io.BytesIO()
     image.save(image_buffer, format="PNG")
     image_buffer.seek(0)
-    
+
     return image_buffer
 
 async def handle_verification_success(member):
