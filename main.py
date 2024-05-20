@@ -75,24 +75,33 @@ async def send_captcha(member):
                 return
 
         if member.id not in verified_users and member.id not in verifying_users:
-            captcha_text = generate_captcha_text()
+            captcha_length = 6  # Length of the CAPTCHA text
+            captcha_text = generate_captcha_text(captcha_length)
             captcha_image = generate_captcha_image(captcha_text)
             file = discord.File(captcha_image, filename="captcha.png")
 
+            # Create a rich embed for CAPTCHA UI
             embed = discord.Embed(
-                title="Welcome to the Server!",
+                title="CAPTCHA Verification",
                 description=f"Hello {member.display_name}!\nPlease complete the CAPTCHA below to gain access.",
-                color=0x7289DA
+                color=random.randint(0, 0xFFFFFF)  # Random color
             )
+            embed.add_field(name="Instructions:", value="Type the text displayed in the image in the chat. The CAPTCHA is not case-sensitive.")
             embed.set_image(url="attachment://captcha.png")
-            embed.set_footer(text="You have 60 seconds to solve the CAPTCHA. Type the text in the chat.")
-            # Send CAPTCHA with clear instructions and interactive feedback
+            embed.set_footer(text="You have 60 seconds to solve the CAPTCHA. Use !retry to refresh the CAPTCHA.")
+
+            # Send the rich embed with the CAPTCHA image
             message = await member.send(embed=embed, file=file)
+
+            # Store verification details
             verifying_users[member.id] = {
                 "captcha_text": captcha_text,
                 "message_id": message.id
             }
+
+            # Initiate CAPTCHA verification
             await verify_captcha(member, captcha_text)
+
             # Update last attempt timestamp
             last_attempt_timestamp[member.id] = time.time()
     except Exception as e:
@@ -126,9 +135,9 @@ async def verify_captcha(member, captcha_text):
         except discord.Forbidden:
             logging.error(f"Bot does not have permission to delete message with ID {message_id}.")
 
-def generate_captcha_text():
+def generate_captcha_text(length):
     captcha_characters = string.ascii_letters + string.digits
-    captcha_text = ''.join(random.choices(captcha_characters, k=6))
+    captcha_text = ''.join(random.choices(captcha_characters, k=length))
     return captcha_text
 
 def generate_captcha_image(text):
@@ -157,14 +166,14 @@ def generate_captcha_image(text):
         draw.line(((x1, y1), (x2, y2)), fill=noise_color, width=2)
 
     # Load a random font
-    font_path = random.choice(["arial.ttf", "times.ttf", "cour.ttf"])
+    font_path = random.choice(["arial.ttf", "times    .ttf", "cour.ttf"])
     font_size = random.randint(36, 42)
     font = ImageFont.truetype(font_path, font_size)
 
     # Add text to the image with slight distortion
     for char_index, char in enumerate(text):
         char_offset_x = random.randint(-5, 5)
-        char_offset_y = random.randint(-5, 5)  # <- This line was incomplete
+        char_offset_y = random.randint(-5, 5)  
         char_position = (10 + char_index * (font_size // 2) + char_offset_x, random.randint(5, 20) + char_offset_y)
         draw.text(char_position, char, fill=text_color, font=font)
 
@@ -216,6 +225,21 @@ async def handle_verification_failure(member, reason):
             await member.guild.unban(member)
             logging.info(f'{member.display_name} unbanned after {CAPTCHA_RETRY_BAN_DURATION} seconds.')
             failed_attempts.pop(member.id)
+
+@bot.command()
+async def retry(ctx):
+    # Check if the user is attempting to retry CAPTCHA verification
+    if ctx.author.id in verifying_users:
+        # Delete the existing CAPTCHA message
+        try:
+            message_id = verifying_users[ctx.author.id]["message_id"]
+            message = await ctx.author.dm_channel.fetch_message(message_id)
+            await message.delete()
+        except Exception as e:
+            logging.error(f"Error deleting CAPTCHA message for {ctx.author.display_name}: {e}")
+
+        # Resend the CAPTCHA
+        await send_captcha(ctx.author)
 
 @bot.event
 async def on_message(message):
