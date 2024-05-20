@@ -8,10 +8,11 @@ import asyncio
 import time
 import logging
 
-intents = discord.Intents.default()
-intents.members = True  # Enable the members intent to receive member join events
-
-bot = commands.Bot(command_prefix='!', intents=intents)
+# Constants for CAPTCHA settings
+CAPTCHA_TIMEOUT = 60  # Timeout in seconds
+CAPTCHA_ATTEMPTS_LIMIT = 3  # Maximum number of attempts
+RATE_LIMIT_WINDOW = 60  # Time window in seconds
+RATE_LIMIT_MAX_ATTEMPTS = 3  # Maximum number of attempts allowed within the window
 
 # Placeholder for storing verified users
 verified_users = {}
@@ -22,14 +23,32 @@ verifying_users = {}
 # Placeholder for storing timestamp of last CAPTCHA attempt for each user
 last_attempt_timestamp = {}
 
-# Constants for CAPTCHA settings
-CAPTCHA_TIMEOUT = 60  # Timeout in seconds
-CAPTCHA_ATTEMPTS_LIMIT = 3  # Maximum number of attempts
-RATE_LIMIT_WINDOW = 60  # Time window in seconds
-RATE_LIMIT_MAX_ATTEMPTS = 3  # Maximum number of attempts allowed within the window
+# Placeholder for tracking failed CAPTCHA attempts for each user
+failed_attempts = {}
 
-# Logging configuration
-logging.basicConfig(filename='bot.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Constants for CAPTCHA retry limit
+CAPTCHA_RETRY_LIMIT = 3  # Maximum number of retry attempts
+CAPTCHA_RETRY_BAN_DURATION = 300  # Ban duration in seconds (5 minutes)
+
+# Additional logging configuration
+logger = logging.getLogger('discord')
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
+
+intents = discord.Intents.default()
+intents.members = True  # Enable the members intent to receive member join events
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Function to log IP address if available
+def log_ip_address(member):
+    try:
+        ip_address = member.guild.get_member(member.id).guild.me.guild.voice_states[member.id].self_mute
+        logging.info(f"IP address of {member.display_name}: {ip_address}")
+    except:
+        logging.info(f"No IP address available for {member.display_name}")
 
 @bot.event
 async def on_ready():
@@ -42,63 +61,61 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
+    logging.info(f'{member.display_name} joined the server.')
     await send_captcha(member)
 
 async def send_captcha(member):
-    # Check if the user has exceeded the rate limit
-    if member.id in last_attempt_timestamp:
-        current_time = time.time()
-        time_since_last_attempt = current_time - last_attempt_timestamp[member.id]
-        if time_since_last_attempt < RATE_LIMIT_WINDOW:
-            await member.send(f"You've exceeded the rate limit. Please wait for {int(RATE_LIMIT_WINDOW - time_since_last_attempt)} seconds before trying again.")
-            return
-    
-    if member.id not in verified_users and member.id not in verifying_users:
-        captcha_text = generate_captcha_text()
-        captcha_image = generate_captcha_image(captcha_text)
-        file = discord.File(captcha_image, filename="captcha.png")
-        
-        embed = discord.Embed(
-            title="Welcome to the Server!",
-            description=f"Hello {member.display_name}!\nPlease complete the CAPTCHA below to gain access.",
-            color=0x7289DA
-        )
-        embed.set_image(url="attachment://captcha.png")
-        embed.set_footer(text="You have 60 seconds to solve the CAPTCHA. Type the text in the chat.")
-        try:
+    try:
+        # Check rate limit
+        if member.id in last_attempt_timestamp:
+            current_time = time.time()
+            time_since_last_attempt = current_time - last_attempt_timestamp[member.id]
+            if time_since_last_attempt < RATE_LIMIT_WINDOW:
+                await member.send(f"You've exceeded the rate limit. Please wait for {int(RATE_LIMIT_WINDOW - time_since_last_attempt)} seconds before trying again.")
+                return
+
+        if member.id not in verified_users and member.id not in verifying_users:
+            captcha_text = generate_captcha_text()
+            captcha_image = generate_captcha_image(captcha_text)
+            file = discord.File(captcha_image, filename="captcha.png")
+
+            embed = discord.Embed(
+                title="Welcome to the Server!",
+                description=f"Hello {member.display_name}!\nPlease complete the CAPTCHA below to gain access.",
+                color=0x7289DA
+            )
+            embed.set_image(url="attachment://captcha.png")
+            embed.set_footer(text="You have 60 seconds to solve the CAPTCHA. Type the text in the chat.")
             # Send CAPTCHA with clear instructions and interactive feedback
             message = await member.send(embed=embed, file=file)
             verifying_users[member.id] = {
                 "captcha_text": captcha_text,
                 "message_id": message.id
             }
-            await verify_captcha(member)
+            await verify_captcha(member, captcha_text)
             # Update last attempt timestamp
             last_attempt_timestamp[member.id] = time.time()
-        except discord.Forbidden:
-            logging.error(f"Failed to send CAPTCHA to {member.display_name}. User might have disabled DMs or blocked the bot.")
-            # Handle the case where the bot is unable to send a message to the user
-            # For example, you could kick the user from the server or log the error
+    except Exception as e:
+        logging.error(f'Error sending CAPTCHA to {member.display_name}: {e}')
 
-async def verify_captcha(member):
+async def verify_captcha(member, captcha_text):
     data = verifying_users.get(member.id)
     if not data:
         return
 
-    expected_text = data["captcha_text"]
     message_id = data["message_id"]
 
     def check(message):
-        return message.author == member and message.content == expected_text  # Ensure exact match, including case
+        return message.author == member and message.content.lower() == captcha_text.lower()  # Ensure exact match, case-insensitive
 
     try:
         response = await bot.wait_for('message', check=check, timeout=CAPTCHA_TIMEOUT)  # Wait for user response
         await handle_verification_success(member)
     except asyncio.TimeoutError:
-        await handle_verification_failure(member, "Failed CAPTCHA verification (timeout)")
+        await handle_verification_failure(member, "timeout")
     except Exception as e:
-        logging.error(f"An unexpected error occurred during CAPTCHA verification for {member.display_name}: {e}")
-        await handle_verification_failure(member, "An unexpected error occurred during CAPTCHA verification")
+        logging.error(f'Error verifying CAPTCHA for {member.display_name}: {e}')
+        await handle_verification_failure(member, "an unexpected error")
     finally:
         # Use await to fetch the message before deleting
         try:
@@ -164,16 +181,32 @@ async def handle_verification_success(member):
     role = member.guild.get_role(role_id)
     if role:
         await member.add_roles(role)
-    else:
+    else:        
         logging.error(f"Role with ID {role_id} not found.")
 
     # Optionally, you can grant additional permissions or perform other actions here
     verifying_users.pop(member.id)
+    logging.info(f'{member.display_name} successfully verified.')
 
 async def handle_verification_failure(member, reason):
-    await member.send("CAPTCHA verification failed. You have been removed from the server.")
-    await member.kick(reason=reason)
+    await member.send(f"CAPTCHA verification failed: {reason}. You have been removed from the server.")
+    await member.kick(reason=f"Failed CAPTCHA verification: {reason}")
     verifying_users.pop(member.id)
+    logging.info(f'{member.display_name} failed CAPTCHA verification: {reason}')
+    # Add user to failed attempts dictionary
+    if member.id not in failed_attempts:
+        failed_attempts[member.id] = 1
+    else:
+        failed_attempts[member.id] += 1
+        # If retry limit exceeded, ban user temporarily
+        if failed_attempts[member.id] >= CAPTCHA_RETRY_LIMIT:
+            await member.ban(reason=f"Exceeded CAPTCHA retry limit: {CAPTCHA_RETRY_LIMIT} attempts")
+            logging.info(f'{member.display_name} banned for exceeding CAPTCHA retry limit.')
+            # Reset failed attempts after ban duration
+            await asyncio.sleep(CAPTCHA_RETRY_BAN_DURATION)
+            await member.guild.unban(member)
+            logging.info(f'{member.display_name} unbanned after {CAPTCHA_RETRY_BAN_DURATION} seconds.')
+            failed_attempts.pop(member.id)
 
 @bot.event
 async def on_message(message):
