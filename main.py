@@ -9,19 +9,21 @@ import time
 import logging
 
 # Constants
-CAPTCHA_TIMEOUT = 60
-CAPTCHA_ATTEMPTS_LIMIT = 3
-RATE_LIMIT_WINDOW = 60
-RATE_LIMIT_MAX_ATTEMPTS = 3
-CAPTCHA_RETRY_LIMIT = 3
-CAPTCHA_RETRY_BAN_DURATION = 300
-CUSTOM_CAPTCHA_LENGTH = 6
-CUSTOM_CAPTCHA_WIDTH = 200
-CUSTOM_CAPTCHA_HEIGHT = 80
-CUSTOM_CAPTCHA_NOISE_LEVEL = 1000
+custom_settings = {
+    "captcha_timeout": 60,
+    "captcha_attempts_limit": 3,
+    "rate_limit_window": 60,
+    "rate_limit_max_attempts": 3,
+    "captcha_retry_limit": 3,
+    "captcha_retry_ban_duration": 300
+}
 
 # Logging configuration
-logging.basicConfig(level=logging.INFO, filename='discord.log', format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('discord')
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
 
 # Bot initialization
 intents = discord.Intents.default()
@@ -50,12 +52,12 @@ async def send_captcha(member):
         if member.id in last_attempt_timestamp:
             current_time = time.time()
             time_since_last_attempt = current_time - last_attempt_timestamp[member.id]
-            if time_since_last_attempt < RATE_LIMIT_WINDOW:
-                await member.send(f"You've exceeded the rate limit. Please wait for {int(RATE_LIMIT_WINDOW - time_since_last_attempt)} seconds before trying again.")
+            if time_since_last_attempt < custom_settings["rate_limit_window"]:
+                await member.send(f"You've exceeded the rate limit. Please wait for {int(custom_settings['rate_limit_window'] - time_since_last_attempt)} seconds before trying again.")
                 return
         
         if member.id not in verified_users and member.id not in verifying_users:
-            captcha_text = generate_captcha_text(CUSTOM_CAPTCHA_LENGTH)
+            captcha_text = generate_captcha_text(6)
             captcha_image = generate_captcha_image(captcha_text)
             file = discord.File(captcha_image, filename="captcha.png")
             
@@ -83,10 +85,10 @@ async def verify_captcha(member, captcha_text):
     message_id = data["message_id"]
     
     def check(message):
-        return message.author == member and message.content.lower() == captcha_text.lower()
+        return message.author == member and message.content == captcha_text
     
     try:
-        response = await bot.wait_for('message', check=check, timeout=CAPTCHA_TIMEOUT)
+        response = await bot.wait_for('message', check=check, timeout=custom_settings["captcha_timeout"])
         await handle_verification_success(member)
     except asyncio.TimeoutError:
         await handle_verification_failure(member, "timeout")
@@ -108,7 +110,7 @@ def generate_captcha_text(length):
     return captcha_text
 
 def generate_captcha_image(text):
-    width, height = CUSTOM_CAPTCHA_WIDTH, CUSTOM_CAPTCHA_HEIGHT
+    width, height = 200, 80
     background_color = (240, 240, 240)
     text_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
     noise_color = (random.randint(150, 255), random.randint(150, 255), random.randint(150, 255))
@@ -116,7 +118,7 @@ def generate_captcha_image(text):
     image = Image.new("RGB", (width, height), color=background_color)
     draw = ImageDraw.Draw(image)
     
-    for _ in range(CUSTOM_CAPTCHA_NOISE_LEVEL):
+    for _ in range(1000):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
         draw.point((x, y), fill=noise_color)
@@ -171,13 +173,13 @@ async def handle_verification_failure(member, reason):
     else:
         failed_attempts[member.id] += 1
         # If retry limit exceeded, ban user temporarily
-        if failed_attempts[member.id] >= CAPTCHA_RETRY_LIMIT:
-            await member.ban(reason=f"Exceeded CAPTCHA retry limit: {CAPTCHA_RETRY_LIMIT} attempts")
+        if failed_attempts[member.id] >= custom_settings["captcha_retry_limit"]:
+            await member.ban(reason=f"Exceeded CAPTCHA retry limit: {custom_settings['captcha_retry_limit']} attempts")
             logging.info(f'{member.display_name} banned for exceeding CAPTCHA retry limit.')
             # Reset failed attempts after ban duration
-            await asyncio.sleep(CAPTCHA_RETRY_BAN_DURATION)
+            await asyncio.sleep(custom_settings["captcha_retry_ban_duration"])
             await member.guild.unban(member)
-            logging.info(f'{member.display_name} unbanned after {CAPTCHA_RETRY_BAN_DURATION} seconds.')
+            logging.info(f'{member.display_name} unbanned after {custom_settings["captcha_retry_ban_duration"]} seconds.')
             failed_attempts.pop(member.id)
 
 @bot.command()
