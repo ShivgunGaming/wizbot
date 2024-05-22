@@ -15,13 +15,13 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX_ATTEMPTS = 3
 CAPTCHA_RETRY_LIMIT = 3
 CAPTCHA_RETRY_BAN_DURATION = 300
+CUSTOM_CAPTCHA_LENGTH = 6
+CUSTOM_CAPTCHA_WIDTH = 200
+CUSTOM_CAPTCHA_HEIGHT = 80
+CUSTOM_CAPTCHA_NOISE_LEVEL = 1000
 
 # Logging configuration
-logger = logging.getLogger('discord')
-logger.setLevel(logging.INFO)
-handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
-handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(handler)
+logging.basicConfig(level=logging.INFO, filename='discord.log', format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Bot initialization
 intents = discord.Intents.default()
@@ -55,7 +55,7 @@ async def send_captcha(member):
                 return
         
         if member.id not in verified_users and member.id not in verifying_users:
-            captcha_text = generate_captcha_text(6)
+            captcha_text = generate_captcha_text(CUSTOM_CAPTCHA_LENGTH)
             captcha_image = generate_captcha_image(captcha_text)
             file = discord.File(captcha_image, filename="captcha.png")
             
@@ -108,7 +108,7 @@ def generate_captcha_text(length):
     return captcha_text
 
 def generate_captcha_image(text):
-    width, height = 200, 80
+    width, height = CUSTOM_CAPTCHA_WIDTH, CUSTOM_CAPTCHA_HEIGHT
     background_color = (240, 240, 240)
     text_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
     noise_color = (random.randint(150, 255), random.randint(150, 255), random.randint(150, 255))
@@ -116,7 +116,7 @@ def generate_captcha_image(text):
     image = Image.new("RGB", (width, height), color=background_color)
     draw = ImageDraw.Draw(image)
     
-    for _ in range(1000):
+    for _ in range(CUSTOM_CAPTCHA_NOISE_LEVEL):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
         draw.point((x, y), fill=noise_color)
@@ -209,4 +209,4 @@ async def on_message(message):
         # Allow messages from verified users to be processed normally
         await bot.process_commands(message)
 
-bot.run('TOKEN')
+bot.run('TOKEN HERE')
