@@ -66,7 +66,7 @@ async def send_captcha(member):
                 description=f"Hello {member.display_name}!\nPlease complete the CAPTCHA below to gain access.",
                 color=random.randint(0, 0xFFFFFF)
             )
-            embed.add_field(name="Instructions:", value="Type the text displayed in the image in the chat. The CAPTCHA is not case-sensitive.")
+            embed.add_field(name="Instructions:", value="Type the text displayed in the image in the chat. The CAPTCHA is case-sensitive.")
             embed.set_image(url="attachment://captcha.png")
             embed.set_footer(text="You have 60 seconds to solve the CAPTCHA. Use !retry to refresh the CAPTCHA.")
             
@@ -111,23 +111,24 @@ def generate_captcha_text(length):
 
 def generate_captcha_image(text):
     width, height = 200, 80
-    background_color = (240, 240, 240)
-    text_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
-    noise_color = (random.randint(150, 255), random.randint(150, 255), random.randint(150, 255))
     
+    # Background Color
+    background_color = (random.randint(200, 255), random.randint(200, 255), random.randint(200, 255))
+    
+    # Text Color
+    text_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))
+    
+    # Create image and drawing object
     image = Image.new("RGB", (width, height), color=background_color)
     draw = ImageDraw.Draw(image)
     
-    for _ in range(1000):
+    # Background Patterns (Optional)
+    for _ in range(100):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
-        draw.point((x, y), fill=noise_color)
+        draw.point((x, y), fill=(random.randint(150, 200), random.randint(150, 200), random.randint(150, 200)))
     
-    for _ in range(5):
-        x1, y1 = random.randint(0, width - 1), random.randint(0, height - 1)
-        x2, y2 = random.randint(0, width - 1), random.randint(0, height - 1)
-        draw.line(((x1, y1), (x2, y2)), fill=noise_color, width=2)
-    
+    # Text Effects and Font Selection
     font_path = random.choice(["arial.ttf", "times.ttf", "cour.ttf"])
     font_size = random.randint(36, 42)
     font = ImageFont.truetype(font_path, font_size)
@@ -138,9 +139,27 @@ def generate_captcha_image(text):
         char_position = (10 + char_index * (font_size // 2) + char_offset_x, random.randint(5, 20) + char_offset_y)
         draw.text(char_position, char, fill=text_color, font=font)
     
+    # Text Effects (Optional)
+    # Example: Add outline effect
+    for char_index, char in enumerate(text):
+        outline_color = (255 - text_color[0], 255 - text_color[1], 255 - text_color[2])
+        char_position = (10 + char_index * (font_size // 2), random.randint(5, 20))
+        draw.text(char_position, char, fill=outline_color, font=font)
+    
+    # Dynamic Elements (Optional)
+    # Example: Add noise
+    for _ in range(200):
+        x = random.randint(0, width - 1)
+        y = random.randint(0, height - 1)
+        draw.point((x, y), fill=(random.randint(150, 255), random.randint(150, 255), random.randint(150, 255)))
+    
+    # Blur effect
     image = image.filter(ImageFilter.GaussianBlur(radius=1.5))
+    
+    # Add border
     draw.rectangle([0, 0, width - 1, height - 1], outline=(0, 0, 0), width=1)
     
+    # Save image to buffer
     image_buffer = io.BytesIO()
     image.save(image_buffer, format="PNG")
     image_buffer.seek(0)
