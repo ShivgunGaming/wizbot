@@ -96,13 +96,16 @@ async def verify_captcha(member, captcha_text):
         logging.error(f'Error verifying CAPTCHA for {member.display_name}: {e}')
         await handle_verification_failure(member, "an unexpected error")
     finally:
-        try:
-            message = await member.dm_channel.fetch_message(message_id)
-            await message.delete()
-        except discord.NotFound:
-            logging.error(f"Message with ID {message_id} not found.")
-        except discord.Forbidden:
-            logging.error(f"Bot does not have permission to delete message with ID {message_id}.")
+        await delete_captcha_message(member, message_id)
+
+async def delete_captcha_message(member, message_id):
+    try:
+        message = await member.dm_channel.fetch_message(message_id)
+        await message.delete()
+    except discord.NotFound:
+        logging.error(f"Message with ID {message_id} not found.")
+    except discord.Forbidden:
+        logging.error(f"Bot does not have permission to delete message with ID {message_id}.")
 
 def generate_captcha_text(length):
     captcha_characters = string.ascii_letters + string.digits
@@ -112,23 +115,11 @@ def generate_captcha_text(length):
 def generate_captcha_image(text):
     width, height = 200, 80
     
-    # Background Color
     background_color = (random.randint(200, 255), random.randint(200, 255), random.randint(200, 255))
-    
-    # Text Color
-    text_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))
-    
-    # Create image and drawing object
     image = Image.new("RGB", (width, height), color=background_color)
     draw = ImageDraw.Draw(image)
     
-    # Background Patterns (Optional)
-    for _ in range(100):
-        x = random.randint(0, width - 1)
-        y = random.randint(0, height - 1)
-        draw.point((x, y), fill=(random.randint(150, 200), random.randint(150, 200), random.randint(150, 200)))
-    
-    # Text Effects and Font Selection
+    text_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))
     font_path = random.choice(["arial.ttf", "times.ttf", "cour.ttf"])
     font_size = random.randint(36, 42)
     font = ImageFont.truetype(font_path, font_size)
@@ -139,27 +130,16 @@ def generate_captcha_image(text):
         char_position = (10 + char_index * (font_size // 2) + char_offset_x, random.randint(5, 20) + char_offset_y)
         draw.text(char_position, char, fill=text_color, font=font)
     
-    # Text Effects (Optional)
-    # Example: Add outline effect
-    for char_index, char in enumerate(text):
-        outline_color = (255 - text_color[0], 255 - text_color[1], 255 - text_color[2])
-        char_position = (10 + char_index * (font_size // 2), random.randint(5, 20))
-        draw.text(char_position, char, fill=outline_color, font=font)
-    
-    # Dynamic Elements (Optional)
-    # Example: Add noise
     for _ in range(200):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
         draw.point((x, y), fill=(random.randint(150, 255), random.randint(150, 255), random.randint(150, 255)))
     
-    # Blur effect
+    image = image.transform((width, height), Image.PERSPECTIVE, (1, 0.1, 0, 0.1, 1, 0, 0, 0))
     image = image.filter(ImageFilter.GaussianBlur(radius=1.5))
     
-    # Add border
     draw.rectangle([0, 0, width - 1, height - 1], outline=(0, 0, 0), width=1)
     
-    # Save image to buffer
     image_buffer = io.BytesIO()
     image.save(image_buffer, format="PNG")
     image_buffer.seek(0)
@@ -184,7 +164,7 @@ async def handle_verification_failure(member, reason):
     await member.send(f"CAPTCHA verification failed: {reason}. You have been removed from the server.")
     await member.kick(reason=f"Failed CAPTCHA verification: {reason}")
     verifying_users.pop(member.id)
-    logging.info(f'{member.display_name} failed CAPTCHA verification: {reason}')
+    logging.    info(f'{member.display_name} failed CAPTCHA verification: {reason}')
     
     # Add user to failed attempts dictionary
     if member.id not in failed_attempts:
@@ -193,41 +173,46 @@ async def handle_verification_failure(member, reason):
         failed_attempts[member.id] += 1
         # If retry limit exceeded, ban user temporarily
         if failed_attempts[member.id] >= custom_settings["captcha_retry_limit"]:
-            await member.ban(reason=f"Exceeded CAPTCHA retry limit: {custom_settings['captcha_retry_limit']} attempts")
+            await ban_user(member)
             logging.info(f'{member.display_name} banned for exceeding CAPTCHA retry limit.')
             # Reset failed attempts after ban duration
             await asyncio.sleep(custom_settings["captcha_retry_ban_duration"])
-            await member.guild.unban(member)
+            await unban_user(member)
             logging.info(f'{member.display_name} unbanned after {custom_settings["captcha_retry_ban_duration"]} seconds.')
             failed_attempts.pop(member.id)
 
+async def ban_user(member):
+    await member.ban(reason=f"Exceeded CAPTCHA retry limit: {custom_settings['captcha_retry_limit']} attempts")
+
+async def unban_user(member):
+    await member.guild.unban(member)
+
 @bot.command()
 async def retry(ctx):
-    # Check if the user is attempting to retry CAPTCHA verification
     if ctx.author.id in verifying_users:
-        # Delete the existing CAPTCHA message
         try:
             message_id = verifying_users[ctx.author.id]["message_id"]
-            message = await ctx.author.dm_channel.fetch_message(message_id)
-            await message.delete()
+            await delete_captcha_message(ctx.author, message_id)
         except Exception as e:
             logging.error(f"Error deleting CAPTCHA message for {ctx.author.display_name}: {e}")
         
-        # Resend the CAPTCHA
         await send_captcha(ctx.author)
+
+@bot.command()
+async def newcaptcha(ctx):
+    if ctx.author.id not in verified_users and ctx.author.id not in verifying_users:
+        await send_captcha(ctx.author)
+    else:
+        await ctx.send("You are already verified or currently undergoing verification.")
 
 @bot.event
 async def on_message(message):
-    # Check if the message author is a member who has not yet been verified
     if isinstance(message.author, discord.Member) and message.author.id not in verified_users:
-        # Delete the message sent by unverified users
         await message.delete()
-        # Optionally, you can send a warning message to the user explaining the verification process
         if message.author.id not in verifying_users:
             await message.author.send("You must verify the CAPTCHA before you can send messages in the server.")
             await send_captcha(message.author)
     else:
-        # Allow messages from verified users to be processed normally
         await bot.process_commands(message)
 
 bot.run('TOKEN HERE')
