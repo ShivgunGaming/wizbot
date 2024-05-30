@@ -124,21 +124,27 @@ def generate_captcha_image(text):
     font_size = random.randint(36, 42)
     font = ImageFont.truetype(font_path, font_size)
     
+    # Add gradient background
+    draw.rectangle([0, 0, width, height], fill=(255,255,255), width=0)
+    for i in range(0, width, 10):
+        draw.line([(i, 0), (0, i)], fill=(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+    
     for char_index, char in enumerate(text):
         char_offset_x = random.randint(-5, 5)
         char_offset_y = random.randint(-5, 5)
         char_position = (10 + char_index * (font_size // 2) + char_offset_x, random.randint(5, 20) + char_offset_y)
-        draw.text(char_position, char, fill=text_color, font=font)
+        # Rotate each character randomly
+        rotation_angle = random.randint(-30, 30)
+        draw.text(char_position, char, fill=text_color, font=font, align="center", anchor=None, direction=None, features=None, language=None, stroke_width=0, stroke_fill=None, rotation=rotation_angle)
     
+    # Add noise and distortion
     for _ in range(200):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
-        draw.point((x, y), fill=(random.randint(150, 255), random.randint(150, 255), random.randint(150, 255)))
+        draw.point((x, y), fill=(random.randint(150, 255), random.randint(150, 255), random.randint(150, 255), random.randint(150, 255)))
     
-    image = image.transform((width, height), Image.PERSPECTIVE, (1, 0.1, 0, 0.1, 1, 0, 0, 0))
+    # Apply Gaussian blur for additional distortion
     image = image.filter(ImageFilter.GaussianBlur(radius=1.5))
-    
-    draw.rectangle([0, 0, width - 1, height - 1], outline=(0, 0, 0), width=1)
     
     image_buffer = io.BytesIO()
     image.save(image_buffer, format="PNG")
@@ -164,7 +170,7 @@ async def handle_verification_failure(member, reason):
     await member.send(f"CAPTCHA verification failed: {reason}. You have been removed from the server.")
     await member.kick(reason=f"Failed CAPTCHA verification: {reason}")
     verifying_users.pop(member.id)
-    logging.    info(f'{member.display_name} failed CAPTCHA verification: {reason}')
+    logging.info(f'{member.display_name} failed CAPTCHA verification: {reason}')
     
     # Add user to failed attempts dictionary
     if member.id not in failed_attempts:
